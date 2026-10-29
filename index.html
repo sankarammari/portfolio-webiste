@@ -166,6 +166,12 @@ body.menu-open{overflow:hidden}
 .rail a.is-active i{width:28px;background:var(--grad)}
 .rail a:hover span,.rail a:focus-visible span{opacity:1;transform:none}
 
+/* drag to spin */
+html{touch-action:pan-y pinch-zoom}
+html.can-spin,html.can-spin body{cursor:grab}
+html.is-spinning,html.is-spinning *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+.can-spin .cursor{width:58px;height:58px;margin:-29px 0 0 -29px;box-shadow:inset 0 0 0 1.5px rgb(139 92 246/.6)}
+
 /* cursor */
 .cursor{position:fixed;left:0;top:0;z-index:120;pointer-events:none;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;
   box-shadow:inset 0 0 0 1.5px rgb(var(--ink)/.35);transition:width .35s var(--ease-out-quint),height .35s var(--ease-out-quint),margin .35s var(--ease-out-quint),background-color .35s,box-shadow .35s;opacity:0}
@@ -419,7 +425,7 @@ body.menu-open{overflow:hidden}
   </div>
   <div class="hero-foot appear appear--soft" style="--d:1.6s" aria-hidden="true">
     <span class="mouse"><i></i>Scroll — every chapter builds its own scene</span>
-    <span><b>Move</b> your cursor to look around</span>
+    <span><b>Drag</b> to spin it 360° · <b>move</b> to look around</span>
   </div>
 </section>
 
@@ -762,7 +768,7 @@ async function build() {
       g.fillStyle = dark; g.fillRect(0, 0, W, H);
       g.fillStyle = bar; g.fillRect(0, 0, W, 68);
       ['#ff5f57', '#febc2e', '#28c840'].forEach((col, i) => { g.fillStyle = col; g.beginPath(); g.arc(36 + i * 28, 34, 9, 0, Math.PI * 2); g.fill(); });
-      if (file) { rr(g, 132, 14, 230, 40, 10); g.fillStyle = 'rgba(255,255,255,.08)'; g.fill(); g.fillStyle = '#c9cdf5'; g.font = `500 22px ${MONO}`; g.textBaseline = 'middle'; g.fillText(file, 152, 35); }
+      if (file) { rr(g, 132, 14, g.measureText ? 230 : 230, 40, 10); g.fillStyle = 'rgba(255,255,255,.08)'; g.fill(); g.fillStyle = '#c9cdf5'; g.font = `500 22px ${MONO}`; g.textBaseline = 'middle'; g.fillText(file, 152, 35); }
       if (title) { g.fillStyle = '#8f95c9'; g.font = `500 22px ${MONO}`; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillText(title, W / 2, 35); g.textAlign = 'left'; }
       g.font = `600 ${size}px ${MONO}`; g.textBaseline = 'alphabetic';
       let left = st.chars, cx = x0, cy = y0;
@@ -1262,6 +1268,33 @@ async function build() {
   const ndc = new THREE.Vector2(), pointer = new THREE.Vector2();
   addEventListener('pointermove', (e) => ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), { passive: true });
 
+  /* drag to spin the scene 360°; it coasts, then turns back to face the reader */
+  const TAU = Math.PI * 2, html = document.documentElement;
+  let spinY = 0, spinX = 0, velY = 0, velX = 0, dragging = false, axis = null, lastX = 0, lastY = 0, lastTouch = 0;
+  const grabbable = (t) => !t.closest('a,button,input,.content,.menu,.topbar,.rail,.hero-foot');
+  addEventListener('pointerdown', (e) => {
+    if (reduce || e.button > 0 || !grabbable(e.target)) return;
+    dragging = true; lastX = e.clientX; lastY = e.clientY; velY = velX = 0;
+    axis = e.pointerType === 'mouse' ? 'free' : null;
+    if (axis) html.classList.add('is-spinning');
+  });
+  addEventListener('pointermove', (e) => {
+    if (!reduce && e.pointerType === 'mouse') html.classList.toggle('can-spin', !dragging && grabbable(e.target));
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    if (axis === null) {                              /* touch: horizontal spins, vertical scrolls the page */
+      if (Math.abs(dx) + Math.abs(dy) < 8) return;
+      axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'none';
+      if (axis === 'none') { dragging = false; return; }
+      html.classList.add('is-spinning');
+    }
+    lastX = e.clientX; lastY = e.clientY; lastTouch = performance.now();
+    velY = dx * 0.009; spinY += velY;
+    if (axis === 'free') { velX = dy * 0.005; spinX = Math.max(-0.6, Math.min(0.6, spinX + velX)); }
+  }, { passive: true });
+  const release = () => { if (!dragging) return; dragging = false; lastTouch = performance.now(); html.classList.remove('is-spinning'); };
+  addEventListener('pointerup', release); addEventListener('pointercancel', release);
+
   const aura = document.getElementById('aura');
   const AURA = [
     ['rgb(61 90 254/.22)', 'rgb(236 72 153/.2)'], ['rgb(139 92 246/.22)', 'rgb(61 90 254/.18)'], ['rgb(20 184 166/.22)', 'rgb(61 90 254/.18)'],
@@ -1282,6 +1315,15 @@ async function build() {
     const c = chapterAt();
     pointer.lerp(ndc, 1 - Math.exp(-dt * 3));
     root.rotation.y = pointer.x * 0.12; root.rotation.x = -pointer.y * 0.08;
+    if (!dragging) {
+      const f60 = dt * 60;
+      spinY += velY * f60; spinX = Math.max(-0.6, Math.min(0.6, spinX + velX * f60));
+      velY *= Math.pow(0.93, f60); velX *= Math.pow(0.9, f60);
+      if (now - lastTouch > 1800) {                  /* settle on the nearest full turn, facing front */
+        const e = 1 - Math.exp(-dt * 2.6);
+        spinY += (Math.round(spinY / TAU) * TAU - spinY) * e; spinX += -spinX * e;
+      }
+    }
 
     for (const s of scenes) {
       const d = c - s.k, a = Math.abs(d);
@@ -1309,7 +1351,7 @@ async function build() {
       s.group.visible = cur.sc > fit * 0.004;
       if (!s.group.visible) continue;
       s.group.position.set(cur.x, cur.y, 0);
-      s.group.rotation.set(cur.rx, cur.ry, 0);
+      s.group.rotation.set(cur.rx + spinX, cur.ry + spinY, 0);
       s.group.scale.setScalar(Math.max(0.001, cur.sc));
       s.update(t, v, now);
     }
