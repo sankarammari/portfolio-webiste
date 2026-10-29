@@ -692,7 +692,8 @@ try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 if (renderer) build();
 
 async function build() {
-  renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth < 768 ? 1.25 : 1.5));
+  const setDPR = () => renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth <= 900 ? 2.5 : 1.5));   /* phones: full sharpness, scenes are drawn small */
+  setDPR();
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -711,7 +712,7 @@ async function build() {
 
   /* ---------- helpers ---------- */
   const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
-  const toTex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO; return t; };
+  const toTex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; return t; };
   const rr = (g, x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); };
   const lin = (g, x0, y0, x1, y1, a, b) => { const gr = g.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, a); gr.addColorStop(1, b); return gr; };
   const MONO = '"JetBrains Mono", ui-monospace, monospace', SANS = 'Inter, system-ui, sans-serif';
@@ -1249,7 +1250,7 @@ async function build() {
   /* ---------- layout ---------- */
   let visW = 1, visH = 1, wide = true, fit = 1;
   const frame = () => {
-    renderer.setSize(innerWidth, innerHeight, false);
+    setDPR(); renderer.setSize(innerWidth, innerHeight, false);
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
     visH = 2 * camera.position.z * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)); visW = visH * camera.aspect;
     wide = innerWidth > 900;
